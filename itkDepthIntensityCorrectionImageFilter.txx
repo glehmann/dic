@@ -295,6 +295,7 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
       double b = yb - a * xb;
       
       double greatest = NumericTraits<double>::NonpositiveMin();
+      double smallest = NumericTraits<double>::max();
       OffsetValueType bSlice2 = this->GetInput()->GetLargestPossibleRegion().GetIndex()[m_Dimension];
       OffsetValueType eSlice2 = bSlice2 + this->GetInput()->GetLargestPossibleRegion().GetSize()[m_Dimension];
       for( OffsetValueType x=bSlice2; x<eSlice2; x++ )
@@ -302,8 +303,10 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
         double y = vcl_exp( a * x + b );
         m_Factors[x] = y;
         greatest = std::max( greatest, y );
+        smallest = std::min( smallest, y );
         // std::cout << "y: " << y << std::endl;
         }
+      m_GreatestFactor = greatest / smallest;
       for( typename MapType::iterator mit = m_Factors.begin(); mit!=m_Factors.end(); mit++ )
         {
         mit->second = greatest / mit->second;
@@ -315,11 +318,14 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
       OffsetValueType bSlice2 = this->GetInput()->GetLargestPossibleRegion().GetIndex()[m_Dimension];
       OffsetValueType eSlice2 = bSlice2 + this->GetInput()->GetLargestPossibleRegion().GetSize()[m_Dimension];
       double greatest = NumericTraits<double>::NonpositiveMin();
+      double smallest = NumericTraits<double>::max();
       for( typename MapType::const_iterator mit = m_Measures.begin(); mit!=m_Measures.end(); mit++ )
         {
         // std::cout << "measure: " << mit->second << std::endl;
         greatest = std::max( greatest, mit->second );
+        smallest = std::min( smallest, mit->second );
         }
+      m_GreatestFactor = greatest / smallest;
       for( OffsetValueType slice2=bSlice2; slice2<eSlice2; slice2++ )
         {
         if( m_Measures.find(slice2) != m_Measures.end() )
@@ -387,6 +393,7 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
   os << indent << "Rank: " << m_Rank << std::endl;
   os << indent << "Method: " << m_Method << std::endl;
   os << indent << "Measure: " << m_Measure << std::endl;
+  os << indent << "GreatestFactor: " << m_GreatestFactor << std::endl;
 }
 } // end namespace itk
 

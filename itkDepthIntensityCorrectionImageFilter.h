@@ -126,6 +126,8 @@ public:
   itkSetMacro(Measure, int);
   itkGetConstMacro(Measure, int);
 
+  itkGetConstMacro(GreatestFactor, double);
+
 protected:
   DepthIntensityCorrectionImageFilter()
   {
@@ -134,6 +136,7 @@ protected:
     m_Threshold = NumericTraits<InputPixelType>::NonpositiveMin();
     m_Method = REGRESSION;
     m_Measure = QUANTILE;
+    m_GreatestFactor = 0.0;
   }
 
   virtual ~DepthIntensityCorrectionImageFilter() {}
@@ -168,6 +171,7 @@ private:
   double                                  m_Rank;
   int                                     m_Method;
   int                                     m_Measure;
+  double                                  m_GreatestFactor;
 
   // used internaly
   typedef std::map< OffsetValueType, double > MapType;
