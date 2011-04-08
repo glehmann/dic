@@ -134,8 +134,8 @@ protected:
     m_Dimension = ImageDimension - 1;
     m_Rank = 0.5;
     m_Threshold = NumericTraits<InputPixelType>::NonpositiveMin();
-    m_Method = REGRESSION;
-    m_Measure = QUANTILE;
+    m_Method = DIRECT;
+    m_Measure = MEAN;
     m_GreatestFactor = 0.0;
   }
 
