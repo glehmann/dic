@@ -115,20 +115,20 @@ void
 DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
 ::BeforeThreadedGenerateData()
 {
-  long nbOfThreads = this->GetNumberOfThreads();
+  m_NumberOfThreads = this->GetNumberOfThreads();
   if ( itk::MultiThreader::GetGlobalMaximumNumberOfThreads() != 0 )
     {
-    nbOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
+    m_NumberOfThreads = vnl_math_min( this->GetNumberOfThreads(), itk::MultiThreader::GetGlobalMaximumNumberOfThreads() );
     }
   // number of threads can be constrained by the region size, so call the
   // SplitRequestedRegion
   // to get the real number of threads which will be used
   typename TOutputImage::RegionType splitRegion;  // dummy region - just to call
                                                   // the following method
-  nbOfThreads = this->SplitRequestedRegion(0, nbOfThreads, splitRegion);
+  m_NumberOfThreads = this->SplitRequestedRegion(0, m_NumberOfThreads, splitRegion);
   m_Barrier = Barrier::New();
-  m_Barrier->Initialize(nbOfThreads);
-  m_Quantiles.clear();
+  m_Barrier->Initialize(m_NumberOfThreads);
+  m_Measures.clear();
   m_Factors.clear();
 
   // get the min and max of the feature image, to use those value as the bounds
@@ -162,10 +162,12 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
   typename HistogramType::MeasurementVectorType imageMin;
   imageMin.SetSize(1);
   imageMin.Fill(m_Minimum);
+  imageMin.Fill(0);
 
   typename HistogramType::MeasurementVectorType imageMax;
   imageMax.SetSize(1);
   imageMax.Fill(m_Maximum);
+  imageMax.Fill(256);
 
   typename HistogramType::MeasurementVectorType mv;
   mv.SetSize(1);
@@ -198,21 +200,60 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
       }
     if( histogram->GetTotalFrequency() != 0 )
       {
-      // compute the quantile
-      double quantile = 0;
-      double count = 0;
-      for ( SizeValueType i = 0; i < histogram->Size(); i++ )
+      if( m_Measure == QUANTILE )
         {
-        count += histogram->GetFrequency(i);
-
-        if ( count >= ( histogram->GetTotalFrequency() * m_Rank ) )
+        // compute the quantile
+        double quantile = 0;
+        double count = 0;
+        for ( SizeValueType i = 0; i < histogram->Size(); i++ )
           {
-          quantile = histogram->GetMeasurementVector(i)[0];
-          break;
+          count += histogram->GetFrequency(i);
+
+          if ( count >= ( histogram->GetTotalFrequency() * m_Rank ) )
+            {
+            quantile = histogram->GetMeasurementVector(i)[0];
+            break;
+            }
           }
+        // store the value
+        m_Measures[slice] = quantile;
         }
-      // store the value
-      m_Quantiles[slice] = quantile;
+      else if( m_Measure == MEAN )
+        {
+        // compute the quantile
+        double sum = 0;
+        double count = 0;
+        double lowerLimit = histogram->GetTotalFrequency() * m_Rank / 2;
+        double upperLimit = histogram->GetTotalFrequency() - lowerLimit;
+        for ( SizeValueType i = 0; i < histogram->Size(); i++ )
+          {
+          double freq = histogram->GetFrequency(i);
+
+          if ( count + freq >= lowerLimit )
+            {
+            sum += freq * histogram->GetMeasurementVector(i)[0];
+            if( count < lowerLimit )
+              {
+              // too much has been added
+              sum -= histogram->GetMeasurementVector(i)[0] * (lowerLimit - count);
+              }
+            }
+          count += freq;
+          if( count >= upperLimit )
+            {
+            // too much has been added
+            sum -= histogram->GetMeasurementVector(i)[0] * (count - upperLimit);
+            // no need to do more
+            break;
+            }
+          }
+        // store the value
+        m_Measures[slice] = sum / ( histogram->GetTotalFrequency() * (1-m_Rank) );
+        }
+      else
+        {
+        itkExceptionMacro(<<"Invalid measure "<<m_Measure);
+        }
       }
     else
       {
@@ -227,45 +268,75 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
   // compute the factors to apply to each slice
   if( threadId == 0 )
     {
-    double xb = 0;
-    double yb = 0;
-    double x2b = 0;
-    double xyb = 0;
-    for( typename MapType::const_iterator mit = m_Quantiles.begin(); mit!=m_Quantiles.end(); mit++ )
+    if( m_Method == REGRESSION )
       {
-      double x = mit->first;
-      double y = vcl_log( mit->second );
-//       std::cout << "quantile: " << mit->second << std::endl;
-      xb += x;
-      yb += y;
-      x2b += x*x;
-      xyb += x*y;
-      }
-    xb /= m_Quantiles.size();
-    yb /= m_Quantiles.size();
-    x2b /= m_Quantiles.size();
-    xyb /= m_Quantiles.size();
-    double Sxy = xyb - (xb*yb);
-    double Sx2 = x2b - (xb*xb);
+      double xb = 0;
+      double yb = 0;
+      double x2b = 0;
+      double xyb = 0;
+      for( typename MapType::const_iterator mit = m_Measures.begin(); mit!=m_Measures.end(); mit++ )
+        {
+        double x = mit->first;
+        double y = vcl_log( mit->second );
+        // std::cout << "measure: " << mit->second << std::endl;
+        xb += x;
+        yb += y;
+        x2b += x*x;
+        xyb += x*y;
+        }
+      xb /= m_Measures.size();
+      yb /= m_Measures.size();
+      x2b /= m_Measures.size();
+      xyb /= m_Measures.size();
+      double Sxy = xyb - (xb*yb);
+      double Sx2 = x2b - (xb*xb);
 
-    double a = Sxy / Sx2;
-    double b = yb - a * xb;
-    
-    double greatest = NumericTraits<double>::NonpositiveMin();
-    for( typename MapType::const_iterator mit = m_Quantiles.begin(); mit!=m_Quantiles.end(); mit++ )
-      {
-      double x = mit->first;
-      double y = vcl_exp( a * x + b );
-      m_Factors[x] = y;
-      greatest = std::max( greatest, y );
-//       std::cout << "y: " << y << std::endl;
+      double a = Sxy / Sx2;
+      double b = yb - a * xb;
+      
+      double greatest = NumericTraits<double>::NonpositiveMin();
+      OffsetValueType bSlice2 = this->GetInput()->GetLargestPossibleRegion().GetIndex()[m_Dimension];
+      OffsetValueType eSlice2 = bSlice2 + this->GetInput()->GetLargestPossibleRegion().GetSize()[m_Dimension];
+      for( OffsetValueType x=bSlice2; x<eSlice2; x++ )
+        {
+        double y = vcl_exp( a * x + b );
+        m_Factors[x] = y;
+        greatest = std::max( greatest, y );
+        // std::cout << "y: " << y << std::endl;
+        }
+      for( typename MapType::iterator mit = m_Factors.begin(); mit!=m_Factors.end(); mit++ )
+        {
+        mit->second = greatest / mit->second;
+        // std::cout << "factor: " << mit->second << std::endl;
+        }
       }
-    for( typename MapType::iterator mit = m_Factors.begin(); mit!=m_Factors.end(); mit++ )
+    else if( m_Method == DIRECT )
       {
-      mit->second = greatest / mit->second;
-//       std::cout << "factor: " << mit->second << std::endl;
+      OffsetValueType bSlice2 = this->GetInput()->GetLargestPossibleRegion().GetIndex()[m_Dimension];
+      OffsetValueType eSlice2 = bSlice2 + this->GetInput()->GetLargestPossibleRegion().GetSize()[m_Dimension];
+      double greatest = NumericTraits<double>::NonpositiveMin();
+      for( typename MapType::const_iterator mit = m_Measures.begin(); mit!=m_Measures.end(); mit++ )
+        {
+        // std::cout << "measure: " << mit->second << std::endl;
+        greatest = std::max( greatest, mit->second );
+        }
+      for( OffsetValueType slice2=bSlice2; slice2<eSlice2; slice2++ )
+        {
+        if( m_Measures.find(slice2) != m_Measures.end() )
+          {
+          m_Factors[slice2] = greatest / m_Measures[slice2];
+          }
+        else
+          {
+          m_Factors[slice2] = 1.0;
+          }
+        // std::cout << "factor: " << m_Factors[slice2] << std::endl;
+        }
       }
-    
+    else
+      {
+      itkExceptionMacro(<<"Invalid method "<<m_Method);
+      }
     // we'll need the output data very soon
     this->AllocateOutputs();
     }
@@ -299,7 +370,7 @@ void
 DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
 ::AfterThreadedGenerateData()
 {
-  m_Quantiles.clear();
+  m_Measures.clear();
   m_Factors.clear();
   m_Barrier = NULL;
 }
@@ -314,6 +385,8 @@ DepthIntensityCorrectionImageFilter< TInputImage, TOutputImage >
   os << indent << "Threshold: " << static_cast< typename NumericTraits< InputPixelType >::PrintType >( m_Threshold ) << std::endl;
   os << indent << "Dimension: " << m_Dimension << std::endl;
   os << indent << "Rank: " << m_Rank << std::endl;
+  os << indent << "Method: " << m_Method << std::endl;
+  os << indent << "Measure: " << m_Measure << std::endl;
 }
 } // end namespace itk
 

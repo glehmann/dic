@@ -35,7 +35,7 @@ namespace itk
  *
  */
 
-template< class TInputImage, class TOutputImage >
+template< class TInputImage, class TOutputImage=TInputImage >
 class ITK_EXPORT DepthIntensityCorrectionImageFilter:
   public ImageToImageFilter< TInputImage, TOutputImage >
 {
@@ -112,12 +112,28 @@ public:
   itkSetMacro(Threshold, InputPixelType);
   itkGetConstMacro(Threshold, InputPixelType);
 
+  
+  enum {DIRECT=0, REGRESSION=1} Method;
+  enum {QUANTILE=0, MEAN=1} Measure;
+  
+  /**
+   */
+  itkSetMacro(Method, int);
+  itkGetConstMacro(Method, int);
+
+  /**
+   */
+  itkSetMacro(Measure, int);
+  itkGetConstMacro(Measure, int);
+
 protected:
   DepthIntensityCorrectionImageFilter()
   {
     m_Dimension = ImageDimension - 1;
     m_Rank = 0.5;
     m_Threshold = NumericTraits<InputPixelType>::NonpositiveMin();
+    m_Method = REGRESSION;
+    m_Measure = QUANTILE;
   }
 
   virtual ~DepthIntensityCorrectionImageFilter() {}
@@ -150,20 +166,22 @@ private:
   SizeValueType                           m_Dimension;
   InputPixelType                          m_Threshold;
   double                                  m_Rank;
+  int                                     m_Method;
+  int                                     m_Measure;
 
   // used internaly
   typedef std::map< OffsetValueType, double > MapType;
 
   InputPixelType                          m_Minimum;
   InputPixelType                          m_Maximum;
-  MapType                                 m_Quantiles;
+  MapType                                 m_Measures;
   MapType                                 m_Factors;
   typename Barrier::Pointer               m_Barrier;
+  int                                     m_NumberOfThreads;
 
   void Wait()
   {
-    // use m_NumberOfLabels.size() to get the number of thread used
-    if ( m_Quantiles.size() > 1 )
+    if ( m_NumberOfThreads > 1 )
       {
       m_Barrier->Wait();
       }

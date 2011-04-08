@@ -8,9 +8,9 @@
 int main(int argc, char * argv[])
 {
 
-  if( argc != 3 )
+  if( argc != 7 )
     {
-    std::cerr << "usage: " << argv[0] << " intput output" << std::endl;
+    std::cerr << "usage: " << argv[0] << " intput output method measure rank th" << std::endl;
     std::cerr << " input: the input image" << std::endl;
     std::cerr << " output: the output image" << std::endl;
     // std::cerr << "  : " << std::endl;
@@ -29,7 +29,10 @@ int main(int argc, char * argv[])
   typedef itk::DepthIntensityCorrectionImageFilter< IType, IType > FilterType;
   FilterType::Pointer filter = FilterType::New();
   filter->SetInput( reader->GetOutput() );
-  filter->SetThreshold( 1 );
+  filter->SetMethod( atoi(argv[3]) );
+  filter->SetMeasure( atof(argv[4]) );
+  filter->SetRank( atof(argv[5]) );
+  filter->SetThreshold( atoi(argv[6]) );
 
   itk::SimpleFilterWatcher watcher(filter, "filter");
 
