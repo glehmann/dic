@@ -2,7 +2,7 @@
 #include "itkImageFileWriter.h"
 #include "itkSimpleFilterWatcher.h"
 
-#include "itkImageFilter.h"
+#include "itkDepthIntensityCorrectionImageFilter.h"
 
 
 int main(int argc, char * argv[])
@@ -17,7 +17,7 @@ int main(int argc, char * argv[])
     exit(1);
     }
 
-  const int dim = 2;
+  const int dim = 3;
   
   typedef unsigned char PType;
   typedef itk::Image< PType, dim > IType;
@@ -26,9 +26,10 @@ int main(int argc, char * argv[])
   ReaderType::Pointer reader = ReaderType::New();
   reader->SetFileName( argv[1] );
 
-  typedef itk::ImageFilter< IType, IType > FilterType;
+  typedef itk::DepthIntensityCorrectionImageFilter< IType, IType > FilterType;
   FilterType::Pointer filter = FilterType::New();
   filter->SetInput( reader->GetOutput() );
+  filter->SetThreshold( 1 );
 
   itk::SimpleFilterWatcher watcher(filter, "filter");
 
